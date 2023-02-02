@@ -2,6 +2,7 @@ package parser
 
 import (
 	"go/ast"
+	"strings"
 	"unicode"
 )
 
@@ -86,16 +87,21 @@ func (st *Struct) AddField(field *ast.Field, aliases map[string]string) {
 			Name: field.Names[0].Name,
 			Type: theType,
 		}
-		st.Fields = append(st.Fields, newField)
 		if unicode.IsUpper(rune(newField.Name[0])) {
 			for _, t := range fundamentalTypes {
-				st.AddToAggregation(replacePackageConstant(t, st.PackageName))
+				if strings.Contains(t, ".") {
+					continue
+				}
+				fType := replacePackageConstant(t, "")
+				newField.FullType = fType
+				st.AddToAggregation(fType)
 			}
 		} else {
 			for _, t := range fundamentalTypes {
 				st.addToPrivateAggregation(replacePackageConstant(t, st.PackageName))
 			}
 		}
+		st.Fields = append(st.Fields, newField)
 	} else if field.Type != nil {
 		if theType[0] == "*"[0] {
 			theType = theType[1:]

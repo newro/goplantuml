@@ -52,6 +52,9 @@ func getIdent(v *ast.Ident, aliases map[string]string) (string, []string) {
 		return v.Name, []string{}
 	}
 	t := fmt.Sprintf("%s%s", packageConstant, v.Name)
+	if aliasPackage, ok := aliases[v.Name]; ok {
+		t = fmt.Sprintf("%s.%s", aliasPackage, v.Name)
+	}
 	return t, []string{t}
 }
 

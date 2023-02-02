@@ -44,6 +44,7 @@ func main() {
 	showAliases := flag.Bool("show-aliases", false, "Shows aliases even when -hide-connections is used")
 	showConnectionLabels := flag.Bool("show-connection-labels", false, "Shows labels in the connections to identify the connections types (e.g. extends, implements, aggregates, alias of")
 	title := flag.String("title", "", "Title of the generated diagram")
+	layout := flag.String("layout", "", "Comma separated list of layout to be added to the diagram")
 	notes := flag.String("notes", "", "Comma separated list of notes to be added to the diagram")
 	output := flag.String("output", "", "output file path. If omitted, then this will default to standard output")
 	showOptionsAsNote := flag.Bool("show-options-as-note", false, "Show a note in the diagram with the none evident options ran with this CLI")
@@ -65,6 +66,16 @@ func main() {
 		renderingOptions[goplantuml.RenderImplementations] = *showImplementations
 
 	}
+	layoutList := []string{}
+	split := strings.Split(*layout, ",")
+	for _, l := range split {
+		trimmed := strings.TrimSpace(l)
+		if trimmed != "" {
+			layoutList = append(layoutList, trimmed)
+		}
+	}
+	renderingOptions[goplantuml.RenderLayout] = strings.Join(layoutList, "\n")
+
 	noteList := []string{}
 	if *showOptionsAsNote {
 		legend, err := getLegend(renderingOptions)
@@ -77,7 +88,7 @@ func main() {
 	if *notes != "" {
 		noteList = append(noteList, "", "<b><u>Notes</u></b>")
 	}
-	split := strings.Split(*notes, ",")
+	split = strings.Split(*notes, ",")
 	for _, note := range split {
 		trimmed := strings.TrimSpace(note)
 		if trimmed != "" {

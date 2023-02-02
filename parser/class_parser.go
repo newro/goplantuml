@@ -61,9 +61,11 @@ type ClassDiagramOptions struct {
 // RenderingOptions will allow the class parser to optionally enebale or disable the things to render.
 type RenderingOptions struct {
 	Title                   string
+	Layout                  string
 	Notes                   string
 	Aggregations            bool
 	Fields                  bool
+	OnlyStructFields        bool
 	Methods                 bool
 	Compositions            bool
 	Implementations         bool
@@ -100,6 +102,9 @@ const (
 	// RenderTitle is the options for the Title of the diagram. The value of this will be rendered as a title unless empty
 	RenderTitle
 
+	// RenderLayout is the options for the Layout of the diagram. The value of this will be rendered as a layout unless empty
+	RenderLayout
+
 	// RenderNotes contains a list of notes to be rendered in the class diagram
 	RenderNotes
 
@@ -134,12 +139,14 @@ func NewClassDiagramWithOptions(options *ClassDiagramOptions) (*ClassParser, err
 		renderingOptions: &RenderingOptions{
 			Aggregations:     false,
 			Fields:           true,
+			OnlyStructFields: true,
 			Methods:          true,
 			Compositions:     true,
 			Implementations:  true,
 			Aliases:          true,
 			ConnectionLabels: false,
 			Title:            "",
+			Layout:           "",
 			Notes:            "",
 		},
 		structure:         make(map[string]map[string]*Struct),
@@ -381,7 +388,6 @@ func (p *ClassParser) processSpec(spec ast.Spec) {
 				return
 			}
 			alias = getNewAlias(fmt.Sprintf("%s.%s", packageName, aliasType), p.currentPackageName, typeName)
-
 		}
 	default:
 		// Not needed for class diagrams (Imports, global variables, regular functions, etc)
@@ -435,9 +441,11 @@ func getBasicType(theType ast.Expr) ast.Expr {
 func (p *ClassParser) Render() string {
 	str := &LineStringBuilder{}
 	str.WriteLineWithDepth(0, "@startuml")
-	str.WriteLineWithDepth(0, "left to right direction")
 	if p.renderingOptions.Title != "" {
 		str.WriteLineWithDepth(0, fmt.Sprintf(`title %s`, p.renderingOptions.Title))
+	}
+	if p.renderingOptions.Layout != "" {
+		str.WriteLineWithDepth(0, p.renderingOptions.Layout)
 	}
 	if note := strings.TrimSpace(p.renderingOptions.Notes); note != "" {
 		str.WriteLineWithDepth(0, "legend")
@@ -451,6 +459,9 @@ func (p *ClassParser) Render() string {
 	}
 	sort.Strings(packages)
 	for _, pack := range packages {
+		if pack == "S3File" {
+			continue
+		}
 		structures := p.structure[pack]
 		p.renderStructures(pack, structures, str)
 
@@ -601,6 +612,9 @@ func (p *ClassParser) renderCompositions(structure *Struct, name string, composi
 	orderedCompositions := []string{}
 
 	for c := range structure.Composition {
+		if p.getPackageName(c, structure) == "S3File" {
+			continue
+		}
 		if !strings.Contains(c, ".") {
 			c = fmt.Sprintf("%s.%s", p.getPackageName(c, structure), c)
 		}
@@ -644,6 +658,9 @@ func (p *ClassParser) renderAggregationMap(aggregationMap map[string]struct{}, s
 	sort.Strings(orderedAggregations)
 
 	for _, a := range orderedAggregations {
+		if p.getPackageName(a, structure) == "S3File" {
+			continue
+		}
 		if !strings.Contains(a, ".") {
 			a = fmt.Sprintf("%s.%s", p.getPackageName(a, structure), a)
 		}
@@ -659,10 +676,8 @@ func (p *ClassParser) renderAggregationMap(aggregationMap map[string]struct{}, s
 
 func (p *ClassParser) getPackageName(t string, st *Struct) string {
 
-	for a := range p.allStructs {
-		if strings.HasSuffix(a, t) {
-			return a[:strings.LastIndex(a, ".")]
-		}
+	if aliasPackage, ok := p.allImports[t]; ok {
+		return aliasPackage
 	}
 	packageName := st.PackageName
 	if isPrimitiveString(t) {
@@ -734,7 +749,12 @@ func (p *ClassParser) renderStructFields(structure *Struct, privateFields *LineS
 		if accessModifier == "-" {
 			privateFields.WriteLineWithDepth(2, fmt.Sprintf(`%s %s %s`, accessModifier, field.Name, field.Type))
 		} else {
-			publicFields.WriteLineWithDepth(2, fmt.Sprintf(`%s %s %s`, accessModifier, field.Name, field.Type))
+			if !p.renderingOptions.OnlyStructFields {
+				publicFields.WriteLineWithDepth(2, fmt.Sprintf(`%s %s %s`, accessModifier, field.Name, field.Type))
+			}
+			if field.FullType != "" {
+				publicFields.WriteLineWithDepth(2, fmt.Sprintf(`%s %s %s`, accessModifier, field.Name, field.Type))
+			}
 		}
 	}
 }
@@ -755,6 +775,7 @@ func (p *ClassParser) getOrCreateStruct(name string) *Struct {
 			PrivateAggregations: make(map[string]struct{}, 0),
 		}
 		p.structure[p.currentPackageName][name] = result
+		p.allImports[name] = p.currentPackageName
 	}
 	return result
 }
@@ -789,6 +810,8 @@ func (p *ClassParser) SetRenderingOptions(ro map[RenderingOption]interface{}) er
 			p.renderingOptions.ConnectionLabels = val.(bool)
 		case RenderTitle:
 			p.renderingOptions.Title = val.(string)
+		case RenderLayout:
+			p.renderingOptions.Layout = val.(string)
 		case RenderNotes:
 			p.renderingOptions.Notes = val.(string)
 		case AggregatePrivateMembers:

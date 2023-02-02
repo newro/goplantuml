@@ -4,12 +4,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	goplantuml "github.com/jfeliu007/goplantuml/parser"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	goplantuml "github.com/jfeliu007/goplantuml/parser"
 )
 
 // RenderingOptionSlice will implements the sort interface

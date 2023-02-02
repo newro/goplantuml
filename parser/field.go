@@ -9,15 +9,15 @@ import (
 
 const packageConstant = "{packageName}"
 
-//Field can hold the name and type of any field
+// Field can hold the name and type of any field
 type Field struct {
 	Name     string
 	Type     string
 	FullType string
 }
 
-//Returns a string representation of the given expression if it was recognized.
-//Refer to the implementation to see the different string representations.
+// Returns a string representation of the given expression if it was recognized.
+// Refer to the implementation to see the different string representations.
 func getFieldType(exp ast.Expr, aliases map[string]string) (string, []string) {
 	switch v := exp.(type) {
 	case *ast.Ident:
@@ -30,6 +30,8 @@ func getFieldType(exp ast.Expr, aliases map[string]string) (string, []string) {
 		return getMapType(v, aliases)
 	case *ast.StarExpr:
 		return getStarExp(v, aliases)
+	case *ast.IndexExpr:
+		return getIndexExp(v, aliases)
 	case *ast.ChanType:
 		return getChanType(v, aliases)
 	case *ast.StructType:
@@ -81,6 +83,12 @@ func getStarExp(v *ast.StarExpr, aliases map[string]string) (string, []string) {
 	return fmt.Sprintf("*%s", t), f
 }
 
+func getIndexExp(v *ast.IndexExpr, aliases map[string]string) (string, []string) {
+
+	t, f := getFieldType(v.X, aliases)
+	return fmt.Sprintf("%s", t), f
+}
+
 func getChanType(v *ast.ChanType, aliases map[string]string) (string, []string) {
 
 	t, f := getFieldType(v.Value, aliases)
@@ -120,9 +128,7 @@ func getFuncType(v *ast.FuncType, aliases map[string]string) (string, []string) 
 	}
 	returns := ""
 	returnList := make([]string, 0)
-	for _, re := range function.ReturnValues {
-		returnList = append(returnList, re)
-	}
+	returnList = append(returnList, function.ReturnValues...)
 	if len(returnList) > 1 {
 		returns = fmt.Sprintf("(%s)", strings.Join(returnList, ", "))
 	} else {

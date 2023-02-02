@@ -10,7 +10,6 @@ call the Render() function and this will return a string with the class diagram.
 
 See github.com/jfeliu007/goplantuml/cmd/goplantuml/main.go for a command that uses this functions and outputs the text to
 the console.
-
 */
 package parser
 
@@ -54,6 +53,7 @@ type ClassDiagramOptions struct {
 	FileSystem         afero.Fs
 	Directories        []string
 	IgnoredDirectories []string
+	IgnoredClasses     []string
 	RenderingOptions   map[RenderingOption]interface{}
 	Recursive          bool
 }
@@ -223,16 +223,27 @@ func (p *ClassParser) parsePackage(node ast.Node) {
 	}
 	sort.Strings(sortedFiles)
 	for _, fileName := range sortedFiles {
-
+		oldPackageName := p.currentPackageName
 		if !strings.HasSuffix(fileName, "_test.go") {
 			f := pack.Files[fileName]
 			for _, d := range f.Imports {
 				p.parseImports(d)
 			}
+			for _, c := range f.Comments {
+				ct := strings.Trim(c.Text(), "\n")
+				if strings.Contains(ct, "@PlantUML package") {
+					p.currentPackageName = ct[strings.LastIndex(ct, " ")+1:]
+					_, ok := p.structure[p.currentPackageName]
+					if !ok {
+						p.structure[p.currentPackageName] = make(map[string]*Struct)
+					}
+				}
+			}
 			for _, d := range f.Decls {
 				p.parseFileDeclarations(d)
 			}
 		}
+		p.currentPackageName = oldPackageName
 	}
 }
 
@@ -246,7 +257,7 @@ func (p *ClassParser) parseImports(impt *ast.ImportSpec) {
 
 func (p *ClassParser) parseDirectory(directoryPath string) error {
 	fs := token.NewFileSet()
-	result, err := parser.ParseDir(fs, directoryPath, nil, 0)
+	result, err := parser.ParseDir(fs, directoryPath, nil, parser.ParseComments)
 	if err != nil {
 		return err
 	}
@@ -296,9 +307,17 @@ func (p *ClassParser) handleFuncDecl(decl *ast.FuncDecl) {
 	}
 }
 
-func handleGenDecStructType(p *ClassParser, typeName string, c *ast.StructType) {
+func handleGenDecStructType(p *ClassParser, typeName string, c *ast.StructType, typeParams *ast.FieldList) {
 	for _, f := range c.Fields.List {
 		p.getOrCreateStruct(typeName).AddField(f, p.allImports)
+	}
+
+	if typeParams == nil {
+		return
+	}
+
+	for _, tp := range typeParams.List {
+		p.getOrCreateStruct(typeName).AddTypeParam(tp)
 	}
 }
 
@@ -307,13 +326,11 @@ func handleGenDecInterfaceType(p *ClassParser, typeName string, c *ast.Interface
 		switch t := f.Type.(type) {
 		case *ast.FuncType:
 			p.getOrCreateStruct(typeName).AddMethod(f, p.allImports)
-			break
 		case *ast.Ident:
 			f, _ := getFieldType(t, p.allImports)
 			st := p.getOrCreateStruct(typeName)
 			f = replacePackageConstant(f, st.PackageName)
 			st.AddToComposition(f)
-			break
 		}
 	}
 }
@@ -323,7 +340,16 @@ func (p *ClassParser) handleGenDecl(decl *ast.GenDecl) {
 		// This might be a type of General Declaration we do not know how to handle.
 		return
 	}
+DeclSpecs:
 	for _, spec := range decl.Specs {
+		if decl.Doc != nil {
+			for _, c := range decl.Doc.List {
+				ct := strings.Trim(c.Text, "\n")
+				if strings.Contains(ct, "@PlantUML ignore") {
+					continue DeclSpecs
+				}
+			}
+		}
 		p.processSpec(spec)
 	}
 }
@@ -338,7 +364,7 @@ func (p *ClassParser) processSpec(spec ast.Spec) {
 		switch c := v.Type.(type) {
 		case *ast.StructType:
 			declarationType = "class"
-			handleGenDecStructType(p, typeName, c)
+			handleGenDecStructType(p, typeName, c, v.TypeParams)
 		case *ast.InterfaceType:
 			declarationType = "interface"
 			handleGenDecInterfaceType(p, typeName, c)
@@ -352,7 +378,7 @@ func (p *ClassParser) processSpec(spec ast.Spec) {
 			}
 			packageName := p.currentPackageName
 			if isPrimitiveString(basicType) {
-				packageName = builtinPackageName
+				return
 			}
 			alias = getNewAlias(fmt.Sprintf("%s.%s", packageName, aliasType), p.currentPackageName, typeName)
 
@@ -369,6 +395,11 @@ func (p *ClassParser) processSpec(spec ast.Spec) {
 	case "class":
 		p.allStructs[fullName] = struct{}{}
 	case "alias":
+		if unicode.IsLower(rune(alias.AliasOf[0])) {
+			if !p.renderingOptions.PrivateMembers {
+				return
+			}
+		}
 		p.allAliases[typeName] = alias
 		if strings.Count(alias.Name, ".") > 1 {
 			pack := strings.SplitN(alias.Name, ".", 2)
@@ -404,6 +435,7 @@ func getBasicType(theType ast.Expr) ast.Expr {
 func (p *ClassParser) Render() string {
 	str := &LineStringBuilder{}
 	str.WriteLineWithDepth(0, "@startuml")
+	str.WriteLineWithDepth(0, "left to right direction")
 	if p.renderingOptions.Title != "" {
 		str.WriteLineWithDepth(0, fmt.Sprintf(`title %s`, p.renderingOptions.Title))
 	}
@@ -465,7 +497,7 @@ func (p *ClassParser) renderStructures(pack string, structures map[string]*Struc
 			str.WriteLineWithDepth(2, aliasComplexNameComment)
 			str.WriteLineWithDepth(1, "}")
 		}
-		str.WriteLineWithDepth(0, fmt.Sprintf(`}`))
+		str.WriteLineWithDepth(0, `}`)
 		if p.renderingOptions.Compositions {
 			str.WriteLineWithDepth(0, composition.String())
 		}
@@ -514,13 +546,37 @@ func (p *ClassParser) renderStructure(structure *Struct, pack string, name strin
 	renderStructureType := structure.Type
 	switch structure.Type {
 	case "class":
+		if len(name) > 0 && unicode.IsLower(rune(name[0])) {
+			if !p.renderingOptions.PrivateMembers {
+				return
+			}
+		}
 		sType = "<< (S,Aquamarine) >>"
 	case "alias":
-		sType = "<< (T, #FF7700) >> "
-		renderStructureType = "class"
-
+		return
 	}
-	str.WriteLineWithDepth(1, fmt.Sprintf(`%s %s %s {`, renderStructureType, name, sType))
+
+	types := ""
+	if structure.Generics.exists() {
+		types = "<"
+		idx := 0
+		for t := range structure.Generics.Types {
+			types += fmt.Sprintf("%s, ", t)
+			idx++
+			if idx%3 == 0 {
+				types += "\\n"
+			}
+		}
+		types = strings.TrimSuffix(types, ", ")
+		types += " contains "
+		for _, n := range structure.Generics.Names {
+			types += fmt.Sprintf("%s, ", n)
+		}
+		types = strings.TrimSuffix(types, ", ")
+		types += ">"
+	}
+
+	str.WriteLineWithDepth(1, fmt.Sprintf(`%s %s%s %s {`, renderStructureType, name, types, sType))
 	p.renderStructFields(structure, privateFields, publicFields)
 	p.renderStructMethods(structure, privateMethods, publicMethods)
 	p.renderCompositions(structure, name, composition)
@@ -552,8 +608,10 @@ func (p *ClassParser) renderCompositions(structure *Struct, name string, composi
 		if p.renderingOptions.ConnectionLabels {
 			composedString = extends
 		}
-		c = fmt.Sprintf(`"%s" *-- %s"%s.%s"`, c, composedString, structure.PackageName, name)
-		orderedCompositions = append(orderedCompositions, c)
+		if _, ok := p.allStructs[c]; ok {
+			c = fmt.Sprintf(`"%s" *-- %s"%s.%s"`, c, composedString, structure.PackageName, name)
+			orderedCompositions = append(orderedCompositions, c)
+		}
 	}
 	sort.Strings(orderedCompositions)
 	for _, c := range orderedCompositions {
@@ -601,6 +659,11 @@ func (p *ClassParser) renderAggregationMap(aggregationMap map[string]struct{}, s
 
 func (p *ClassParser) getPackageName(t string, st *Struct) string {
 
+	for a := range p.allStructs {
+		if strings.HasSuffix(a, t) {
+			return a[:strings.LastIndex(a, ".")]
+		}
+	}
 	packageName := st.PackageName
 	if isPrimitiveString(t) {
 		packageName = builtinPackageName
@@ -685,6 +748,7 @@ func (p *ClassParser) getOrCreateStruct(name string) *Struct {
 			Functions:           make([]*Function, 0),
 			Fields:              make([]*Field, 0),
 			Type:                "",
+			Generics:            NewGeneric(),
 			Composition:         make(map[string]struct{}, 0),
 			Extends:             make(map[string]struct{}, 0),
 			Aggregations:        make(map[string]struct{}, 0),

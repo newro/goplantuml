@@ -1,8 +1,11 @@
 package parser
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
-//Alias defines a type that is an alias for some other type
+// Alias defines a type that is an alias for some other type
 type Alias struct {
 	Name        string
 	PackageName string
@@ -13,6 +16,10 @@ func getNewAlias(name, packageName, aliasOf string) *Alias {
 	if isPrimitiveString(name) {
 		name = fmt.Sprintf("%s.%s", builtinPackageName, name)
 	}
+	name = strings.Replace(name, "[]", "", 1)
+	if name[0] == "*"[0] {
+		name = name[1:]
+	}
 	return &Alias{
 		Name:        name,
 		PackageName: packageName,
@@ -20,7 +27,7 @@ func getNewAlias(name, packageName, aliasOf string) *Alias {
 	}
 }
 
-//AliasSlice implement the sort.Interface interface to allow for proper sorting of an alias slice
+// AliasSlice implement the sort.Interface interface to allow for proper sorting of an alias slice
 type AliasSlice []Alias
 
 // Len is the number of elements in the collection.

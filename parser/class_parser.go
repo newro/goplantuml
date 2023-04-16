@@ -41,6 +41,8 @@ const extends = `"extends"`
 const aggregates = `"uses"`
 const aliasOf = `"alias of"`
 
+var tabindent = 0
+
 // WriteLineWithDepth will write the given text with added tabs at the beginning into the string builder.
 func (lsb *LineStringBuilder) WriteLineWithDepth(depth int, str string) {
 	lsb.WriteString(strings.Repeat(tab, depth))
@@ -219,6 +221,7 @@ func NewClassDiagram(directoryPaths []string, ignoreDirectories []string, recurs
 // parse the given ast.Package into the ClassParser structure
 func (p *ClassParser) parsePackage(node ast.Node) {
 	pack := node.(*ast.Package)
+	fmt.Printf("[parsePackage] name[%s]\n", pack.Name)
 	p.currentPackageName = pack.Name
 	_, ok := p.structure[p.currentPackageName]
 	if !ok {
@@ -236,6 +239,7 @@ func (p *ClassParser) parsePackage(node ast.Node) {
 			for _, d := range f.Imports {
 				p.parseImports(d)
 			}
+			fmt.Printf("[parsePackage] filename[%s]\n", fileName)
 			for _, c := range f.Comments {
 				ct := strings.Trim(c.Text(), "\n")
 				if strings.Contains(ct, "@PlantUML package") {
@@ -259,6 +263,7 @@ func (p *ClassParser) parseImports(impt *ast.ImportSpec) {
 		splitPath := strings.Split(impt.Path.Value, "/")
 		s := strings.Trim(splitPath[len(splitPath)-1], `"`)
 		p.allImports[impt.Name.Name] = s
+		fmt.Printf("[parseImports] import[%s %s]\n", impt.Name.Name, s)
 	}
 }
 
@@ -368,6 +373,7 @@ func (p *ClassParser) processSpec(spec ast.Spec) {
 	switch v := spec.(type) {
 	case *ast.TypeSpec:
 		typeName = v.Name.Name
+		fmt.Printf("[processSpec] package[%s] typeName[%s]\n", p.currentPackageName, typeName)
 		switch c := v.Type.(type) {
 		case *ast.StructType:
 			declarationType = "class"
@@ -376,7 +382,10 @@ func (p *ClassParser) processSpec(spec ast.Spec) {
 			declarationType = "interface"
 			handleGenDecInterfaceType(p, typeName, c)
 		default:
-			basicType, _ := getFieldType(getBasicType(c), p.allImports)
+			astType := getBasicType(c)
+			fmt.Printf("[processSpec] package[%s] astTypeName[%s]\n", p.currentPackageName, astType)
+			basicType, _ := getFieldType(astType, p.allImports)
+			fmt.Printf("[processSpec] package[%s] basicTypeName[%s]\n", p.currentPackageName, basicType)
 
 			aliasType, _ := getFieldType(c, p.allImports)
 			aliasType = replacePackageConstant(aliasType, "")
@@ -384,16 +393,22 @@ func (p *ClassParser) processSpec(spec ast.Spec) {
 				typeName = fmt.Sprintf("%s.%s", p.currentPackageName, typeName)
 			}
 			packageName := p.currentPackageName
+			fmt.Printf("[processSpec] package[%s] basicTypeName[%s] alias[%s]\n", packageName, basicType, aliasType)
 			if isPrimitiveString(basicType) {
+				if basicType == "int32" {
+					p.getOrCreateStruct(typeName).Type = "enum"
+				}
 				return
 			}
-			alias = getNewAlias(fmt.Sprintf("%s.%s", packageName, aliasType), p.currentPackageName, typeName)
+			alias = getNewAlias(aliasType, p.currentPackageName, typeName)
+			fmt.Printf("[processSpec] package[%s] basicTypeName[%s] aliasType[%s] alias[%v]\n", packageName, basicType, aliasType, alias)
 		}
 	default:
 		// Not needed for class diagrams (Imports, global variables, regular functions, etc)
 		return
 	}
 	p.getOrCreateStruct(typeName).Type = declarationType
+	fmt.Printf("[processSpec] package[%s] Type[%s] decl[%v]\n", p.currentPackageName, typeName, declarationType)
 	fullName := fmt.Sprintf("%s.%s", p.currentPackageName, typeName)
 	switch declarationType {
 	case "interface":
@@ -761,7 +776,14 @@ func (p *ClassParser) renderStructFields(structure *Struct, privateFields *LineS
 
 // Returns an initialized struct of the given name or returns the existing one if it was already created
 func (p *ClassParser) getOrCreateStruct(name string) *Struct {
+	if strings.Contains(name, p.currentPackageName+".") {
+		name = strings.Replace(name, p.currentPackageName+".", "", 1)
+	}
 	result, ok := p.structure[p.currentPackageName][name]
+	fmt.Printf("[getOrCreateStruct] package[%s] structName[%s] exist[%v]\n", p.currentPackageName, name, ok)
+	if ok {
+		fmt.Printf("[getOrCreateStruct] package[%s] structName[%s] type[%s]\n", p.currentPackageName, name, result.Type)
+	}
 	if !ok {
 		result = &Struct{
 			PackageName:         p.currentPackageName,

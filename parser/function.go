@@ -1,11 +1,12 @@
 package parser
 
 import (
+	"fmt"
 	"go/ast"
 	"reflect"
 )
 
-//Function holds the signature of a function with name, Parameters and Return values
+// Function holds the signature of a function with name, Parameters and Return values
 type Function struct {
 	Name                 string
 	Parameters           []*Field
@@ -14,7 +15,7 @@ type Function struct {
 	FullNameReturnValues []string
 }
 
-//SignturesAreEqual Returns true if the two functions have the same signature (parameter names are not checked)
+// SignturesAreEqual Returns true if the two functions have the same signature (parameter names are not checked)
 func (f *Function) SignturesAreEqual(function *Function) bool {
 	result := true
 	result = result && (function.Name == f.Name)
@@ -79,5 +80,6 @@ func getFunction(f *ast.FuncType, name string, aliases map[string]string, packag
 			}
 		}
 	}
+	fmt.Printf("[getFunction] func[%v]\n", function)
 	return function
 }

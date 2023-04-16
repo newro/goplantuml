@@ -1,8 +1,8 @@
 package parser
 
 import (
+	"fmt"
 	"go/ast"
-	"strings"
 	"unicode"
 )
 
@@ -68,6 +68,7 @@ func (st *Struct) AddToExtends(fType string) {
 
 // AddToAggregation adds an aggregation type to the list of aggregations
 func (st *Struct) AddToAggregation(fType string) {
+	fmt.Printf("[AddToAggregation] package[%s] fieldType[%s]\n", st.PackageName, fType)
 	st.Aggregations[fType] = struct{}{}
 }
 
@@ -80,7 +81,9 @@ func (st *Struct) addToPrivateAggregation(fType string) {
 // needed information
 func (st *Struct) AddField(field *ast.Field, aliases map[string]string) {
 	theType, fundamentalTypes := getFieldType(field.Type, aliases)
+	fmt.Printf("[AddField] package[%s] typeName[%s] types[%s]\n", st.PackageName, theType, fundamentalTypes)
 	theType = replacePackageConstant(theType, "")
+	fmt.Printf("[AddField] package[%s] typeName[%s] fieldName[%s] fieldType[%v]\n", st.PackageName, theType, field.Names, field.Type)
 	if field.Names != nil {
 		theType = replacePackageConstant(theType, "")
 		newField := &Field{
@@ -89,9 +92,6 @@ func (st *Struct) AddField(field *ast.Field, aliases map[string]string) {
 		}
 		if unicode.IsUpper(rune(newField.Name[0])) {
 			for _, t := range fundamentalTypes {
-				if strings.Contains(t, ".") {
-					continue
-				}
 				fType := replacePackageConstant(t, "")
 				newField.FullType = fType
 				st.AddToAggregation(fType)

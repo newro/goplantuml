@@ -34,6 +34,7 @@ func (as RenderingOptionSlice) Swap(i, j int) {
 
 func main() {
 	recursive := flag.Bool("recursive", false, "walk all directories recursively")
+	onlyStructFields := flag.Bool("only-struct-fields", false, "show only struct fields to be added to diagram")
 	ignore := flag.String("ignore", "", "comma separated list of folders to ignore")
 	showAggregations := flag.Bool("show-aggregations", false, "renders public aggregations even when -hide-connections is used (do not render by default)")
 	hideFields := flag.Bool("hide-fields", false, "hides fields")
@@ -46,6 +47,7 @@ func main() {
 	title := flag.String("title", "", "Title of the generated diagram")
 	layout := flag.String("layout", "", "Comma separated list of layout to be added to the diagram")
 	notes := flag.String("notes", "", "Comma separated list of notes to be added to the diagram")
+	filterPackage := flag.String("filter", "", "Comma separated list of packages to be only added to the diagram")
 	output := flag.String("output", "", "output file path. If omitted, then this will default to standard output")
 	showOptionsAsNote := flag.Bool("show-options-as-note", false, "Show a note in the diagram with the none evident options ran with this CLI")
 	aggregatePrivateMembers := flag.Bool("aggregate-private-members", false, "Show aggregations for private members. Ignored if -show-aggregations is not used.")
@@ -111,7 +113,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	result, err := goplantuml.NewClassDiagram(dirs, ignoredDirectories, *recursive)
+	filters := map[string]struct{}{}
+	split = strings.Split(*filterPackage, ",")
+	for _, pack := range split {
+		filters[pack] = struct{}{}
+	}
+
+	result, err := goplantuml.NewClassDiagram(dirs, ignoredDirectories, filters, *recursive, *onlyStructFields)
 	result.SetRenderingOptions(renderingOptions)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())

@@ -54,10 +54,12 @@ func (lsb *LineStringBuilder) WriteLineWithDepth(depth int, str string) {
 type ClassDiagramOptions struct {
 	FileSystem         afero.Fs
 	Directories        []string
+	Filters            map[string]struct{}
 	IgnoredDirectories []string
 	IgnoredClasses     []string
 	RenderingOptions   map[RenderingOption]interface{}
 	Recursive          bool
+	OnlyStructFields   bool
 }
 
 // RenderingOptions will allow the class parser to optionally enebale or disable the things to render.
@@ -65,6 +67,7 @@ type RenderingOptions struct {
 	Title                   string
 	Layout                  string
 	Notes                   string
+	Filters                 map[string]struct{}
 	Aggregations            bool
 	Fields                  bool
 	OnlyStructFields        bool
@@ -141,7 +144,7 @@ func NewClassDiagramWithOptions(options *ClassDiagramOptions) (*ClassParser, err
 		renderingOptions: &RenderingOptions{
 			Aggregations:     false,
 			Fields:           true,
-			OnlyStructFields: true,
+			OnlyStructFields: options.OnlyStructFields,
 			Methods:          true,
 			Compositions:     true,
 			Implementations:  true,
@@ -150,6 +153,7 @@ func NewClassDiagramWithOptions(options *ClassDiagramOptions) (*ClassParser, err
 			Title:            "",
 			Layout:           "",
 			Notes:            "",
+			Filters:          options.Filters,
 		},
 		structure:         make(map[string]map[string]*Struct),
 		allInterfaces:     make(map[string]struct{}),
@@ -207,13 +211,15 @@ func NewClassDiagramWithOptions(options *ClassDiagramOptions) (*ClassParser, err
 
 // NewClassDiagram returns a new classParser with which can Render the class diagram of
 // files in the given directory
-func NewClassDiagram(directoryPaths []string, ignoreDirectories []string, recursive bool) (*ClassParser, error) {
+func NewClassDiagram(directoryPaths []string, ignoreDirectories []string, filters map[string]struct{}, recursive, onlyStructFields bool) (*ClassParser, error) {
 	options := &ClassDiagramOptions{
 		Directories:        directoryPaths,
 		IgnoredDirectories: ignoreDirectories,
 		Recursive:          recursive,
 		RenderingOptions:   map[RenderingOption]interface{}{},
 		FileSystem:         afero.NewOsFs(),
+		Filters:            filters,
+		OnlyStructFields:   onlyStructFields,
 	}
 	return NewClassDiagramWithOptions(options)
 }
@@ -474,12 +480,11 @@ func (p *ClassParser) Render() string {
 	}
 	sort.Strings(packages)
 	for _, pack := range packages {
-		if pack == "S3File" {
+		if _, ok := p.renderingOptions.Filters[pack]; len(p.renderingOptions.Filters) > 0 && !ok {
 			continue
 		}
 		structures := p.structure[pack]
 		p.renderStructures(pack, structures, str)
-
 	}
 	if p.renderingOptions.Aliases {
 		p.renderAliases(str)
@@ -548,6 +553,10 @@ func (p *ClassParser) renderAliases(str *LineStringBuilder) {
 	}
 	sort.Sort(orderedAliases)
 	for _, alias := range orderedAliases {
+		if _, ok := p.renderingOptions.Filters[alias.PackageName]; len(p.renderingOptions.Filters) > 0 && !ok {
+			continue
+		}
+		fmt.Printf("[renderAliases] aliasName[%s] package[%s] Of [%s]\n", alias.Name, alias.PackageName, alias.AliasOf)
 		aliasName := alias.Name
 		if strings.Count(alias.Name, ".") > 1 {
 			split := strings.SplitN(alias.Name, ".", 2)
@@ -627,11 +636,12 @@ func (p *ClassParser) renderCompositions(structure *Struct, name string, composi
 	orderedCompositions := []string{}
 
 	for c := range structure.Composition {
-		if p.getPackageName(c, structure) == "S3File" {
+		pack := p.getPackageName(c, structure)
+		if _, ok := p.renderingOptions.Filters[pack]; len(p.renderingOptions.Filters) > 0 && !ok {
 			continue
 		}
 		if !strings.Contains(c, ".") {
-			c = fmt.Sprintf("%s.%s", p.getPackageName(c, structure), c)
+			c = fmt.Sprintf("%s.%s", pack, c)
 		}
 		composedString := ""
 		if p.renderingOptions.ConnectionLabels {
@@ -673,12 +683,19 @@ func (p *ClassParser) renderAggregationMap(aggregationMap map[string]struct{}, s
 	sort.Strings(orderedAggregations)
 
 	for _, a := range orderedAggregations {
-		if p.getPackageName(a, structure) == "S3File" {
+		pack := p.getPackageName(a, structure)
+		if _, ok := p.renderingOptions.Filters[pack]; len(p.renderingOptions.Filters) > 0 && !ok {
 			continue
 		}
 		if !strings.Contains(a, ".") {
-			a = fmt.Sprintf("%s.%s", p.getPackageName(a, structure), a)
+			a = fmt.Sprintf("%s.%s", pack, a)
+		} else {
+			otherpkg := strings.Split(a, ".")[0]
+			if _, ok := p.renderingOptions.Filters[otherpkg]; len(p.renderingOptions.Filters) > 0 && !ok {
+				continue
+			}
 		}
+		fmt.Printf("[renderAggregationMap] package[%s] aggregation[%s]\n", pack, a)
 		aggregationString := ""
 		if p.renderingOptions.ConnectionLabels {
 			aggregationString = aggregates
@@ -706,6 +723,9 @@ func (p *ClassParser) renderExtends(structure *Struct, name string, extends *Lin
 	for c := range structure.Extends {
 		if !strings.Contains(c, ".") {
 			c = fmt.Sprintf("%s.%s", structure.PackageName, c)
+		}
+		if _, ok := p.renderingOptions.Filters[c]; len(p.renderingOptions.Filters) > 0 && !ok {
+			continue
 		}
 		implementString := ""
 		if p.renderingOptions.ConnectionLabels {

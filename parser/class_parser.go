@@ -360,26 +360,33 @@ func (p *ClassParser) handleGenDecl(decl *ast.GenDecl) {
 	}
 DeclSpecs:
 	for _, spec := range decl.Specs {
+		specType := "alias"
 		if decl.Doc != nil {
 			for _, c := range decl.Doc.List {
 				ct := strings.Trim(c.Text, "\n")
 				if strings.Contains(ct, "@PlantUML ignore") {
 					continue DeclSpecs
+				} else if strings.Contains(ct, "@PlantUML enum") {
+					specType = "enum"
 				}
 			}
 		}
-		p.processSpec(spec)
+		p.processSpec(spec, specType)
 	}
 }
 
-func (p *ClassParser) processSpec(spec ast.Spec) {
+func (p *ClassParser) processSpec(spec ast.Spec, declarationType string) {
 	var typeName string
 	var alias *Alias
-	declarationType := "alias"
 	switch v := spec.(type) {
 	case *ast.TypeSpec:
 		typeName = v.Name.Name
 		fmt.Printf("[processSpec] package[%s] typeName[%s]\n", p.currentPackageName, typeName)
+		if v.Doc != nil {
+			for _, c := range v.Doc.List {
+				fmt.Printf("[processSpec] package[%s] typeName[%s] doc[%s]\n", p.currentPackageName, typeName, strings.Trim(c.Text, "\n"))
+			}
+		}
 		switch c := v.Type.(type) {
 		case *ast.StructType:
 			declarationType = "class"
@@ -401,8 +408,8 @@ func (p *ClassParser) processSpec(spec ast.Spec) {
 			packageName := p.currentPackageName
 			fmt.Printf("[processSpec] package[%s] basicTypeName[%s] alias[%s]\n", packageName, basicType, aliasType)
 			if isPrimitiveString(basicType) {
-				if basicType == "int32" {
-					p.getOrCreateStruct(typeName).Type = "enum"
+				if declarationType == "enum" {
+					p.getOrCreateStruct(typeName).Type = declarationType
 				}
 				return
 			}
@@ -637,11 +644,17 @@ func (p *ClassParser) renderCompositions(structure *Struct, name string, composi
 
 	for c := range structure.Composition {
 		pack := p.getPackageName(c, structure)
+		fmt.Printf("[renderCompositions] package[%s] composition[%s]\n", pack, c)
 		if _, ok := p.renderingOptions.Filters[pack]; len(p.renderingOptions.Filters) > 0 && !ok {
 			continue
 		}
 		if !strings.Contains(c, ".") {
 			c = fmt.Sprintf("%s.%s", pack, c)
+		} else {
+			otherpkg := strings.Split(c, ".")[0]
+			if _, ok := p.renderingOptions.Filters[otherpkg]; len(p.renderingOptions.Filters) > 0 && !ok {
+				continue
+			}
 		}
 		composedString := ""
 		if p.renderingOptions.ConnectionLabels {
@@ -701,7 +714,15 @@ func (p *ClassParser) renderAggregationMap(aggregationMap map[string]struct{}, s
 			aggregationString = aggregates
 		}
 		if p.getPackageName(a, structure) != builtinPackageName {
-			aggregations.WriteLineWithDepth(0, fmt.Sprintf(`"%s.%s"%s o-- "%s"`, structure.PackageName, name, aggregationString, a))
+			oldPackageName := p.currentPackageName
+			p.currentPackageName = pack
+			aggregation := p.getOrCreateStruct(a)
+			p.currentPackageName = oldPackageName
+			if aggregation.Type == "enum" {
+				aggregations.WriteLineWithDepth(0, fmt.Sprintf(`"%s.%s"%s <-- "%s"`, structure.PackageName, name, aggregationString, a))
+			} else {
+				aggregations.WriteLineWithDepth(0, fmt.Sprintf(`"%s.%s"%s o-- "%s"`, structure.PackageName, name, aggregationString, a))
+			}
 		}
 	}
 }

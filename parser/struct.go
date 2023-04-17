@@ -84,6 +84,9 @@ func (st *Struct) AddField(field *ast.Field, aliases map[string]string) {
 	fmt.Printf("[AddField] package[%s] typeName[%s] types[%s]\n", st.PackageName, theType, fundamentalTypes)
 	theType = replacePackageConstant(theType, "")
 	fmt.Printf("[AddField] package[%s] typeName[%s] fieldName[%s] fieldType[%v]\n", st.PackageName, theType, field.Names, field.Type)
+	if field.Tag != nil {
+		fmt.Printf("[AddField] package[%s] typeName[%s] tag[%s]\n", st.PackageName, theType, field.Tag.Value)
+	}
 	if field.Names != nil {
 		theType = replacePackageConstant(theType, "")
 		newField := &Field{

@@ -368,6 +368,8 @@ DeclSpecs:
 					continue DeclSpecs
 				} else if strings.Contains(ct, "@PlantUML enum") {
 					specType = "enum"
+				} else if strings.Contains(ct, "@PlantUML entity") {
+					specType = "entity"
 				}
 			}
 		}
@@ -389,7 +391,9 @@ func (p *ClassParser) processSpec(spec ast.Spec, declarationType string) {
 		}
 		switch c := v.Type.(type) {
 		case *ast.StructType:
-			declarationType = "class"
+			if declarationType == "alias" {
+				declarationType = "class"
+			}
 			handleGenDecStructType(p, typeName, c, v.TypeParams)
 		case *ast.InterfaceType:
 			declarationType = "interface"
@@ -587,13 +591,18 @@ func (p *ClassParser) renderStructure(structure *Struct, pack string, name strin
 	sType := ""
 	renderStructureType := structure.Type
 	switch structure.Type {
-	case "class":
+	case "class", "entity":
 		if len(name) > 0 && unicode.IsLower(rune(name[0])) {
 			if !p.renderingOptions.PrivateMembers {
 				return
 			}
 		}
-		sType = "<< (S,Aquamarine) >>"
+		if structure.Type == "entity" {
+			renderStructureType = "class"
+			sType = "<< (E,GreenYellow) >>"
+		} else {
+			sType = "<< (S,Aquamarine) >>"
+		}
 	case "alias":
 		return
 	}

@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	goplantuml "github.com/jfeliu007/goplantuml/parser"
+	kroki "github.com/yuzutech/kroki-go"
 )
 
 // RenderingOptionSlice will implements the sort interface
@@ -49,6 +51,7 @@ func main() {
 	notes := flag.String("notes", "", "Comma separated list of notes to be added to the diagram")
 	filterPackage := flag.String("filter", "", "Comma separated list of packages to be only added to the diagram")
 	output := flag.String("output", "", "output file path. If omitted, then this will default to standard output")
+	showEncoding := flag.Bool("encode", false, "Encode plantuml syntax for deflate algorithm")
 	showOptionsAsNote := flag.Bool("show-options-as-note", false, "Show a note in the diagram with the none evident options ran with this CLI")
 	aggregatePrivateMembers := flag.Bool("aggregate-private-members", false, "Show aggregations for private members. Ignored if -show-aggregations is not used.")
 	hidePrivateMembers := flag.Bool("hide-private-members", false, "Hide private fields and methods")
@@ -131,6 +134,15 @@ func main() {
 		writer, err = os.Create(*output)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
+		}
+		if *showEncoding {
+			client := kroki.New(kroki.Configuration{
+				URL:     "https://kroki.io",
+				Timeout: time.Second * 20,
+			})
+			result, _ := client.FromString(rendered, kroki.PlantUML, kroki.SVG)
+			fmt.Fprintf(writer, result)
+			os.Exit(0)
 		}
 	} else {
 		writer = os.Stdout
